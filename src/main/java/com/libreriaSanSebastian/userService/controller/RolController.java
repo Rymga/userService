@@ -1,5 +1,6 @@
 package com.libreriaSanSebastian.userService.controller;
 
+import com.libreriaSanSebastian.userService.assemblers.RolModelAssembler;
 import com.libreriaSanSebastian.userService.model.Rol;
 import com.libreriaSanSebastian.userService.service.RolService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,12 +11,17 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.hateoas.CollectionModel;
+import org.springframework.hateoas.EntityModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
 @RestController
 @RequestMapping("/api/v1/roles")
@@ -24,6 +30,9 @@ public class RolController {
 
     @Autowired
     private RolService rolService;
+
+    @Autowired
+    private RolModelAssembler assembler;
 
     @Operation(
         summary = "Listar todos los roles",
@@ -35,8 +44,13 @@ public class RolController {
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = Rol.class))
     )
     @GetMapping
-    public List<Rol> listarTodos() {
-        return rolService.listarTodos();
+    public CollectionModel<EntityModel<Rol>> listarTodos() {
+        List<EntityModel<Rol>> roles = rolService.listarTodos().stream()
+                .map(assembler::toModel)
+                .collect(Collectors.toList());
+
+        return CollectionModel.of(roles,
+                linkTo(methodOn(RolController.class).listarTodos()).withSelfRel());
     }
 
     @Operation(
@@ -56,35 +70,11 @@ public class RolController {
         )
     })
     @GetMapping("/{id}")
-    public ResponseEntity<Rol> obtenerPorId(
+    public ResponseEntity<EntityModel<Rol>> obtenerPorId(
             @Parameter(description = "ID único del rol", required = true, example = "1")
             @PathVariable Long id) {
         return rolService.buscarPorId(id)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
-    }
-
-    @Operation(
-        summary = "Obtener rol por nombre",
-        description = "Busca y retorna un rol específico por su nombre"
-    )
-    @ApiResponses(value = {
-        @ApiResponse(
-            responseCode = "200",
-            description = "Rol encontrado exitosamente",
-            content = @Content(mediaType = "application/json", schema = @Schema(implementation = Rol.class))
-        ),
-        @ApiResponse(
-            responseCode = "404",
-            description = "Rol no encontrado",
-            content = @Content
-        )
-    })
-    @GetMapping("/nombre/{nombre}")
-    public ResponseEntity<Rol> obtenerPorNombre(
-            @Parameter(description = "Nombre del rol", required = true, example = "ADMIN")
-            @PathVariable String nombre) {
-        return rolService.buscarPorNombre(nombre)
+                .map(assembler::toModel)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -114,9 +104,15 @@ public class RolController {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "El nombre del rol es requerido"));
             }
-            
+
             Rol rolCreado = rolService.guardar(rol);
-            return ResponseEntity.status(HttpStatus.CREATED).body(rolCreado);
+            EntityModel<Rol> rolModel = assembler.toModel(rolCreado);
+
+            return ResponseEntity
+                    .status(HttpStatus.CREATED)
+                    .location(linkTo(methodOn(RolController.class).obtenerPorId(rolCreado.getId())).toUri())
+                    .body(rolModel);
+
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", e.getMessage()));
@@ -155,12 +151,12 @@ public class RolController {
                 return ResponseEntity.badRequest()
                         .body(Map.of("error", "El nombre del rol es requerido"));
             }
-            
+
             return rolService.buscarPorId(id)
                     .map(existente -> {
                         rol.setId(id);
                         Rol actualizado = rolService.guardar(rol);
-                        return ResponseEntity.ok(actualizado);
+                        return ResponseEntity.ok(assembler.toModel(actualizado));
                     })
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {

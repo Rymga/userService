@@ -1,5 +1,6 @@
 package com.libreriaSanSebastian.userService.controller;
 
+import com.libreriaSanSebastian.userService.assemblers.UsuarioModelAssembler;
 import com.libreriaSanSebastian.userService.model.Usuario;
 import com.libreriaSanSebastian.userService.service.UsuarioService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -10,12 +11,17 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.hateoas.CollectionModel;
+import org.springframework.hateoas.EntityModel;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+
+import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.*;
 
 @RestController
 @RequestMapping("/api/v1/usuarios")
@@ -24,6 +30,9 @@ public class UsuarioController {
 
     @Autowired
     private UsuarioService usuarioService;
+
+    @Autowired
+    private UsuarioModelAssembler assembler;
 
     @Operation(
         summary = "Listar todos los usuarios",
@@ -35,8 +44,13 @@ public class UsuarioController {
         content = @Content(mediaType = "application/json", schema = @Schema(implementation = Usuario.class))
     )
     @GetMapping
-    public List<Usuario> listarTodos() {
-        return usuarioService.listarTodos();
+    public CollectionModel<EntityModel<Usuario>> listarTodos() {
+        List<EntityModel<Usuario>> usuarios = usuarioService.listarTodos().stream()
+                .map(assembler::toModel)
+                .collect(Collectors.toList());
+
+        return CollectionModel.of(usuarios,
+                linkTo(methodOn(UsuarioController.class).listarTodos()).withSelfRel());
     }
 
     @Operation(
@@ -56,10 +70,11 @@ public class UsuarioController {
         )
     })
     @GetMapping("/{id}")
-    public ResponseEntity<Usuario> obtenerPorId(
+    public ResponseEntity<EntityModel<Usuario>> obtenerPorId(
             @Parameter(description = "ID único del usuario", required = true, example = "1")
             @PathVariable Long id) {
         return usuarioService.buscarPorId(id)
+                .map(assembler::toModel)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -81,10 +96,11 @@ public class UsuarioController {
         )
     })
     @GetMapping("/nombre/{nombre}")
-    public ResponseEntity<Usuario> obtenerPorNombre(
+    public ResponseEntity<EntityModel<Usuario>> obtenerPorNombre(
             @Parameter(description = "Nombre del usuario", required = true, example = "Juan Pérez")
             @PathVariable String nombre) {
         return usuarioService.buscarPorNombre(nombre)
+                .map(assembler::toModel)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -106,10 +122,11 @@ public class UsuarioController {
         )
     })
     @GetMapping("/rut/{rut}")
-    public ResponseEntity<Usuario> obtenerPorRut(
+    public ResponseEntity<EntityModel<Usuario>> obtenerPorRut(
             @Parameter(description = "RUT del usuario", required = true, example = "12345678-9")
             @PathVariable String rut) {
         return usuarioService.buscarPorRut(rut)
+                .map(assembler::toModel)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
@@ -135,15 +152,15 @@ public class UsuarioController {
             @Parameter(description = "Datos del usuario a crear", required = true)
             @RequestBody Usuario usuario) {
         try {
-            if (usuario.getNombre() == null || usuario.getNombre().isEmpty() ||
-                usuario.getEmail() == null || usuario.getEmail().isEmpty() ||
-                usuario.getRut() == null || usuario.getRut().isEmpty()) {
+            if (usuario.getNombre() == null || usuario.getNombre().isEmpty()) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Nombre, email y RUT son campos requeridos"));
+                        .body(Map.of("error", "El nombre del usuario es requerido"));
             }
-            
             Usuario usuarioCreado = usuarioService.guardar(usuario);
-            return ResponseEntity.status(HttpStatus.CREATED).body(usuarioCreado);
+            return ResponseEntity
+                    .status(HttpStatus.CREATED)
+                    .location(linkTo(methodOn(UsuarioController.class).obtenerPorId(usuarioCreado.getId())).toUri())
+                    .body(assembler.toModel(usuarioCreado));
         } catch (Exception e) {
             return ResponseEntity.badRequest()
                     .body(Map.of("error", e.getMessage()));
@@ -178,18 +195,15 @@ public class UsuarioController {
             @Parameter(description = "Datos actualizados del usuario", required = true)
             @RequestBody Usuario usuario) {
         try {
-            if (usuario.getNombre() == null || usuario.getNombre().isEmpty() ||
-                usuario.getEmail() == null || usuario.getEmail().isEmpty() ||
-                usuario.getRut() == null || usuario.getRut().isEmpty()) {
+            if (usuario.getNombre() == null || usuario.getNombre().isEmpty()) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Nombre, email y RUT son campos requeridos"));
+                        .body(Map.of("error", "El nombre del usuario es requerido"));
             }
-            
             return usuarioService.buscarPorId(id)
                     .map(existente -> {
                         usuario.setId(id);
                         Usuario actualizado = usuarioService.guardar(usuario);
-                        return ResponseEntity.ok(actualizado);
+                        return ResponseEntity.ok(assembler.toModel(actualizado));
                     })
                     .orElse(ResponseEntity.notFound().build());
         } catch (Exception e) {
